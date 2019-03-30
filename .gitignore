@@ -102,3 +102,9 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+#log file
+Runlog.txt
+
+#run temp document
+.idea/

@@ -40,7 +40,8 @@ class RandomPolicySearch(BaseAgent):
 
         # Choose an action
         action = self.act(state)
-        
+        print("state1 {}".format(state))
+        print("action {}".format(action))
         # Save experience / reward
         if self.last_state is not None and self.last_action is not None:
             self.total_reward += reward
