@@ -69,9 +69,9 @@ class DDPG(BaseAgent):
         self.action = self.train.actor.operation_AB_out(self.state)
         self.action = self.action + self.noise.sample()
 
-        if 2000 < len(self.train.experience) and 0 == (len(self.train.experience) % 10):
+        if 1000 < len(self.train.experience) and 0 == (len(self.train.experience) % 10):
             print("train {}".format(len(self.train.experience)))
-            for times in range(10):
+            for times in range(25):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.train.experience.pop(
                     self.train.batch_size)
 
