@@ -13,8 +13,13 @@ import pandas as pd
 class DDPG(BaseAgent):
 
     def __init__(self, task):
-        self.state_dim = 3#7
-        self.action_dim = 3#6
+        if False:
+            self.state_dim = 7
+            self.action_dim = 6
+        else:
+            self.state_dim = 3
+            self.action_dim = 3
+
         self.task = task
         self.train = Train(
             self.action_dim,
@@ -35,11 +40,18 @@ class DDPG(BaseAgent):
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
     def preprocess(self, date):
-        return date[0:3]
+        if False:
+            return date
+        else:
+            return date[0:3]
+
     def posprocess(self, date):
-        temp_array = np.zeros(self.task.action_space.shape)
-        temp_array[0:3] = date
-        return temp_array
+        if False:
+            return date
+        else:
+            temp_array = np.zeros(self.task.action_space.shape)
+            temp_array[0:3] = date
+            return temp_array
 
     def reset(self):
         self.next_state = None
@@ -421,8 +433,6 @@ class Actor(Model):
             name='l3',
             kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)
             )
-
-       l3 = tf.nn.tanh(l3)
 
        return (l3 * self.action_range + self.action_low)
 
