@@ -13,17 +13,16 @@ import pandas as pd
 class DDPG(BaseAgent):
 
     def __init__(self, task):
-        if False:
-            self.state_dim = 7
-            self.action_dim = 6
-        else:
-            self.state_dim = 3
-            self.action_dim = 3
-
         self.task = task
-        self.train = Train(
-            self.action_dim,
-            self.state_dim,
+
+        self.state_dim = self.task.observation_space.shape[0]
+        self.action_dim = self.task.action_space.shape[0]
+        self.reward_dim = 1
+        self.done_dim = 1
+
+        self.experience = Experience(self.action_dim, self.state_dim, 1000000)
+
+        self.train = Train(self.action_dim, self.state_dim, self.reward_dim, self.done_dim,
             self.preprocess(self.task.action_space.low),
             self.preprocess(self.task.action_space.high),
             self.preprocess(self.task.observation_space.low),
@@ -40,18 +39,10 @@ class DDPG(BaseAgent):
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
     def preprocess(self, date):
-        if False:
-            return date
-        else:
-            return date[0:3]
+        return date
 
     def posprocess(self, date):
-        if False:
-            return date
-        else:
-            temp_array = np.zeros(self.task.action_space.shape)
-            temp_array[0:3] = date
-            return temp_array
+        return date
 
     def reset(self):
         self.next_state = None
@@ -69,25 +60,23 @@ class DDPG(BaseAgent):
         df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
 
     def step(self, state, reward, done):
-        self.next_state = self.preprocess(
-            (state - self.task.observation_space.low) / (self.task.observation_space.high - self.task.observation_space.low)
-            )
+        self.next_state = self.preprocess(state)
         self.next_state = self.next_state.reshape(1, -1)
         self.reward = reward
         self.done = done
 
         if self.state is not None and self.action is not None:
-            self.train.experience.push(self.state, self.action, self.reward, self.next_state, self.done)
+            self.experience.push(self.state, self.action, self.reward, self.next_state, self.done)
             self.total_reward += self.reward
 
         self.state = self.next_state
         self.action = self.train.operation_param_noise_action(self.state)
         #self.action = self.action + self.noise.sample()
 
-        if 1000 < len(self.train.experience) and 0 == (len(self.train.experience) % 10):
-            print("train {}".format(len(self.train.experience)))
+        if 1000 < len(self.experience) and 0 == (len(self.experience) % 10):
+            print("train {}".format(len(self.experience)))
             for times in range(25):
-                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.train.experience.pop(
+                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(
                     self.train.batch_size)
 
                 self.adaptive_noise.adapt(
@@ -112,7 +101,7 @@ class DDPG(BaseAgent):
                 self.train.iterations += 1
 
         if done:
-            print("done {}".format(len(self.train.experience)))
+            print("done {}".format(len(self.experience)))
             self.write_status([self.episode_num, self.total_reward])
             self.episode_num += 1
 
@@ -134,10 +123,6 @@ class AdaptiveParamNoise:
         else:
             self.current_stddev *= self.adoption_coefficient
 
-    def get_stats(self):
-        stats = {'param_noise_stddev':self.current_stddev}
-        return stats
-
 class Noise:
     def __init__(self, size, theta=0.15, sigma=0.3, mu=None):
         self.size = size
@@ -150,7 +135,6 @@ class Noise:
         self.state = self.mu
 
     def sample(self):
-
         x = self.state
         dx = self.theta * (self.mu - x) + self.sigma * np.random.randn( len(x) )
         self.state = x + dx
@@ -189,7 +173,7 @@ class Experience:
         return state, action, reward, next_state, done
 
 class Train:
-    def __init__(self, action_dim, state_dim, aclow, achigh, stlow, sthigh):
+    def __init__(self, action_dim, state_dim, reward_dim, done_dim, aclow, achigh, stlow, sthigh):
         self.sess = tf.Session()
         self.action_low = aclow
         self.action_high = achigh
@@ -199,14 +183,20 @@ class Train:
         self.state_high = sthigh
         self.state_dim = state_dim
 
+        self.reward_dim = reward_dim
+        self.done_dim = done_dim
+
         self.batch_size = 64
         self.iterations = 0
 
         self.param_noise_stddev = tf.placeholder(tf.float32, shape=(), name='param_noise_stddev')
 
-        self.experience = Experience(self.action_dim, self.state_dim, 1000000)
-        self.critic = Critic(self.sess, self.batch_size, self.action_dim, self.state_dim, 1, 1)
-        self.actor = Actor(self.sess, self.batch_size, self.action_dim, self.state_dim, self.action_low, self.action_high)
+        self.critic = Critic(self.sess, self.batch_size,
+                             self.action_dim, self.state_dim, self.reward_dim, self.done_dim,
+                             self.action_low, self.action_high, self.state_low, self.state_high)
+        self.actor = Actor(self.sess, self.batch_size,
+                           self.action_dim, self.state_dim,
+                           self.action_low, self.action_high, self.state_low, self.state_high)
 
         self.setup_actor_base()
         self.setup_actor_copy()
@@ -362,16 +352,15 @@ class Model(object):
         return [var for var in self.train_vars if 'LayerNorm' not in var.name]
 
 class Actor(Model):
-    def __init__(self, sess, batch_size, action_dim, state_dim, aclow, achigh):
+    def __init__(self, sess, batch_size, action_dim, state_dim, aclow, achigh, stlow, sthigh):
         super().__init__()
 
         self.sess = sess
         self.batch_size = batch_size
 
-        self.action_low = aclow
-        self.action_high = achigh
-        self.action_range = self.action_high - self.action_low
-        
+        self.state_low = stlow
+        self.state_high = sthigh
+        self.state_range = self.state_high - self.state_low
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
             dtype=tf.float32,
@@ -379,6 +368,9 @@ class Actor(Model):
             name='StateInput'
             )
 
+        self.action_low = aclow
+        self.action_high = achigh
+        self.action_range = self.action_high - self.action_low
         self.action_dim = action_dim
         self.gradient_in = tf.placeholder(
             dtype=tf.float32,
@@ -392,8 +384,10 @@ class Actor(Model):
         return NetHandle
 
     def CreateNet(self, OptimizerEn=False, layer_norm=False):
+       l0 = tf.divide(tf.subtract(self.state_in, self.state_low), self.state_range)
+
        l1 = tf.layers.dense(
-            inputs=self.state_in,
+            inputs=l0,
             units=30,
             use_bias=True,
             kernel_initializer=tf.random_normal_initializer(-1/math.sqrt(self.state_dim), 1/math.sqrt(self.state_dim)),
@@ -434,7 +428,9 @@ class Actor(Model):
             kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)
             )
 
-       return (l3 * self.action_range + self.action_low)
+       l3 = tf.nn.tanh(l3)
+
+       return tf.add(tf.multiply(l3, self.action_range), self.action_low)
 
     def BuildCostGraph(self, NetOut):
         self.cost = tf.reduce_mean(self.gradient_in * NetOut)
@@ -451,12 +447,15 @@ class Actor(Model):
 
         
 class Critic(Model):
-    def __init__(self, sess, batch_size, action_dim, state_dim, reward_dim, done_dim):
+    def __init__(self, sess, batch_size, action_dim, state_dim, reward_dim, done_dim, aclow, achigh, stlow, sthigh):
         super().__init__()
 
         self.sess = sess
         self.batch_size = batch_size
 
+        self.state_low = stlow
+        self.state_high = sthigh
+        self.state_range = self.state_high - self.state_low
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
             dtype=tf.float32,
@@ -464,6 +463,9 @@ class Critic(Model):
             name='StateInput'
             )
 
+        self.action_low = aclow
+        self.action_high = achigh
+        self.action_range = self.action_high - self.action_low
         self.action_dim = action_dim
         self.actor_in = tf.placeholder(
             dtype=tf.float32,
@@ -498,6 +500,9 @@ class Critic(Model):
 
 
     def CreateNet(self, OptimizerEn=False, layer_norm=False):
+        l0_s = tf.divide(tf.subtract(self.state_in, self.state_low), self.state_range)
+        l0_a = tf.divide(tf.subtract(self.actor_in, self.action_low), self.action_range)
+
         l1_s_w = tf.get_variable(
                 name='11_s_w',
                 shape=[self.state_dim, 50],
@@ -521,7 +526,7 @@ class Critic(Model):
                 initializer=tf.random_uniform_initializer(-0.01, 0.01),
                 trainable=OptimizerEn
                 )
-        l1 = tf.matmul(self.actor_in, l1_a_w) + tf.matmul(self.state_in, l1_s_w) + l1_b
+        l1 = tf.matmul(l0_a, l1_a_w) + tf.matmul(l0_s, l1_s_w) + l1_b
         if layer_norm:
             l1 = tf.contrib.layers.layer_norm(l1, center=True, scale=True)
         l1 = tf.nn.tanh(l1)
