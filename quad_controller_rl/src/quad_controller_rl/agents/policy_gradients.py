@@ -38,6 +38,9 @@ class DDPG(BaseAgent):
         self.total_reward = 0
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
+        self.episode = 0
+        self.action_filename = os.path.join(util.get_param('out'), "action_{}.csv".format(util.get_timestamp()))
+
     def preprocess(self, date):
         return date
 
@@ -61,6 +64,15 @@ class DDPG(BaseAgent):
     def write_status(self, status):
         df_status = pd.DataFrame([status], columns=self.status_columns)
         df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
+
+    def write_action_log(self, input):
+        if input is None:
+            return
+        self.episode += 1
+        temp = np.asarray([self.episode,0,0,0,0,0,0])
+        temp[1:] = input[0]
+        df_status = pd.DataFrame([temp], columns=['episode','l1','l2','l3','l4','l5','l6'])
+        df_status.to_csv(self.action_filename, mode='a', index=False, header=not os.path.isfile(self.action_filename))
 
     def step(self, state, reward, done):
         self.next_state = self.preprocess(state)
@@ -112,6 +124,7 @@ class DDPG(BaseAgent):
 
             self.reset()
 
+        self.write_action_log(self.action)
         return self.posprocess(self.action)
 
 class AdaptiveParamNoise:
@@ -404,7 +417,7 @@ class Actor(Model):
 
        if layer_norm:
            l1 = tf.contrib.layers.layer_norm(l1, center=True, scale=True)
-       l1 = tf.nn.tanh(l1)
+       l1 = tf.nn.leaky_relu(l1, alpha=0.05, name='l1_activation')
 
        l2 = tf.layers.dense(
             inputs=l1,
@@ -419,12 +432,12 @@ class Actor(Model):
 
        if layer_norm:
            l2 = tf.contrib.layers.layer_norm(l2, center=True, scale=True)
-       l2 = tf.nn.tanh(l2)
+       l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
 
        l3 = tf.layers.dense(
             inputs=l2,
             units=self.action_dim,
-            activation=tf.nn.tanh,
+            activation=tf.nn.sigmoid,
             use_bias=True,
             kernel_initializer=tf.random_normal_initializer(-1/math.sqrt(20), 1/math.sqrt(20)),
             bias_initializer=tf.random_uniform_initializer(-0.01, 0.01),
@@ -432,8 +445,6 @@ class Actor(Model):
             name='l3',
             kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)
             )
-
-       #l3 = tf.nn.sigmoid(l3)
 
        return tf.add(tf.multiply(l3, self.action_range), self.action_low)
 
@@ -534,7 +545,7 @@ class Critic(Model):
         l1 = tf.matmul(l0_a, l1_a_w) + tf.matmul(l0_s, l1_s_w) + l1_b
         if layer_norm:
             l1 = tf.contrib.layers.layer_norm(l1, center=True, scale=True)
-        l1 = tf.nn.tanh(l1)
+        l1 = tf.nn.leaky_relu(l1, alpha=0.05, name="l1_activation")
 
         l2_w = tf.get_variable(
                 name='l2_w',
@@ -554,7 +565,7 @@ class Critic(Model):
         l2 = tf.matmul(l1, l2_w) + l2_b
         if layer_norm:
             l2 = tf.contrib.layers.layer_norm(l2, center=True, scale=True)
-        l2 = tf.nn.tanh(l2)
+        l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
 
         l3_w = tf.get_variable(
                 name='l3_w',
