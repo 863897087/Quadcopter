@@ -29,7 +29,7 @@ class DDPG(BaseAgent):
             self.preprocess(self.task.observation_space.high)
         )
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.2), desired_action_stddev=float(0.2))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.4), desired_action_stddev=float(0.2), adoption_coefficient=float(1.02))
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
@@ -42,7 +42,10 @@ class DDPG(BaseAgent):
         return date
 
     def posprocess(self, date):
-        return date
+        tempdate = np.array([0, 0, 0, 0, 0, 0])
+        if date is not None:
+            tempdate[0:3] = date[0][0:3]
+        return tempdate
 
     def reset(self):
         self.next_state = None
@@ -71,6 +74,8 @@ class DDPG(BaseAgent):
 
         self.state = self.next_state
         self.action = self.train.operation_param_noise_action(self.state)
+        if self.action is None:
+            print("self action is None")
         #self.action = self.action + self.noise.sample()
 
         if 1000 < len(self.experience) and 0 == (len(self.experience) % 10):
@@ -428,7 +433,7 @@ class Actor(Model):
             kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)
             )
 
-       l3 = tf.nn.tanh(l3)
+       #l3 = tf.nn.sigmoid(l3)
 
        return tf.add(tf.multiply(l3, self.action_range), self.action_low)
 
@@ -495,7 +500,7 @@ class Critic(Model):
 
     def __call__(self, OptimizerEn, reuse=False):
         with tf.variable_scope(self.name, reuse=reuse):
-            NetHandle = self.CreateNet(OptimizerEn, layer_norm=True)
+            NetHandle = self.CreateNet(OptimizerEn, layer_norm=False)
         return NetHandle
 
 
