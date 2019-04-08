@@ -29,7 +29,7 @@ class DDPG(BaseAgent):
             self.preprocess(self.task.observation_space.high)
         )
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.4), desired_action_stddev=float(0.2), adoption_coefficient=float(1.02))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.2), desired_action_stddev=float(0.1), adoption_coefficient=float(1.01))
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
@@ -45,10 +45,13 @@ class DDPG(BaseAgent):
         return date
 
     def posprocess(self, date):
-        tempdate = np.array([0, 0, 0, 0, 0, 0])
-        if date is not None:
-            tempdate[0:3] = date[0][0:3]
-        return tempdate
+        if True:
+            tempdate = np.array([0, 0, 0, 0, 0, 0])
+            if date is not None:
+                tempdate[0:3] = date[0][0:3]
+            return tempdate
+        else:
+            return date
 
     def reset(self):
         self.next_state = None
@@ -90,7 +93,7 @@ class DDPG(BaseAgent):
             print("self action is None")
         #self.action = self.action + self.noise.sample()
 
-        if 1000 < len(self.experience) and 0 == (len(self.experience) % 10):
+        if 8000 < len(self.experience) and 0 == (len(self.experience) % 400):
             print("train {}".format(len(self.experience)))
             for times in range(25):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(
@@ -230,6 +233,7 @@ class Train:
         updates = []
         for var, perturb_var in zip(actor.vars, actor_param_noise.vars):
             if var in actor.perturb_vars:
+                print(perturb_var.name, var.name)
                 updates.append(tf.assign(
                         perturb_var,
                         var + tf.random_normal(tf.shape(var), mean=0., stddev=self.param_noise_stddev)
@@ -259,12 +263,12 @@ class Train:
     def setup_param_noise(self):
         self.actor_param_noise = copy(self.actor)
         self.actor_param_noise.name = "param_noise_actor"
-        self.actor_param_noise_tf = self.actor_param_noise(False)
+        self.actor_param_noise_tf = self.actor_param_noise(OptimizerEn=False, layer_norm=True, reuse=False)
         self.actor_param_noise_policy = self.perturb_actor_updates(self.actor, self.actor_param_noise)
 
         self.actor_adaptive_param_noise = copy(self.actor)
         self.actor_adaptive_param_noise.name = "adaptive_param_noise_actor"
-        self.actor_adaptive_param_noise_tf = self.actor_adaptive_param_noise(False)
+        self.actor_adaptive_param_noise_tf = self.actor_adaptive_param_noise(OptimizerEn=False, layer_norm=True, reuse=False)
         self.actor_adaptive_param_noise_policy = self.perturb_actor_updates(self.actor, self.actor_adaptive_param_noise)
         self.actor_adaptive_param_noise_distance = tf.sqrt(
             tf.reduce_mean(
@@ -276,20 +280,20 @@ class Train:
 
     def setup_actor_base(self):
         self.actor.name = "base_actor"
-        self.actor_base_tf = self.actor(True)
+        self.actor_base_tf = self.actor(OptimizerEn=True, layer_norm=True, reuse=False)
         self.actor.BuildCostGraph(self.actor_base_tf)
         self.actor.BuildSummaryGraph()
 
     def setup_actor_copy(self):
         self.actor_copy = copy(self.actor)
         self.actor_copy.name = "copy_actor"
-        self.actor_copy_ty = self.actor_copy(False)
+        self.actor_copy_ty = self.actor_copy(OptimizerEn=False, layer_norm=True, reuse=False)
         self.actor_copy_policy = self.copy_updates(self.actor, self.actor_copy)
-        self.actor_upgrade_policy = self.upgrade_updates(self.actor, self.actor_copy, 0.001)
+        self.actor_upgrade_policy = self.upgrade_updates(self.actor, self.actor_copy, 0.00001)
 
     def setup_critic_base(self):
         self.critic.name = "base_critic"
-        self.critic_base_tf = self.critic(True)
+        self.critic_base_tf = self.critic(OptimizerEn=True, reuse=False)
         self.critic.BuildCostGraph(self.critic_base_tf)
         self.critic.BuildGradientGraph(self.critic_base_tf)
         self.critic.BuildSummaryGraph(self.critic_base_tf)
@@ -297,7 +301,7 @@ class Train:
     def setup_critic_copy(self):
         self.critic_copy = copy(self.critic)
         self.critic_copy.name = "copy_critic"
-        self.critic_copy_ty = self.critic_copy(False)
+        self.critic_copy_ty = self.critic_copy(OptimizerEn=False, reuse=False)
         self.critic_copy_policy = self.copy_updates(self.critic, self.critic_copy)
         self.critic_upgrade_policy = self.upgrade_updates(self.critic, self.critic_copy, 0.0001)
 
@@ -354,6 +358,25 @@ class Train:
 
         self.actor.writer.add_summary(cost_actor_summary, iters)
 
+def ortho_init( scale=1.0 ):
+    def _ortho_init(shape, dtype, partition_info=None):
+        shape = tuple(shape)
+        if len(shape) == 2:
+            flat_shape = shape
+        elif len(shape) == 4:
+            flat_shape = ( np.prod(shape[:1]), shape[-1] )
+        else:
+            raise NotImplementedError
+
+        a = np.random.normal(0.0, 1.0, flat_shape)
+        u, _, v = np.linalg.svd(a, full_matrices=False)
+        if u.shape == flat_shape:
+            q = u
+        else:
+            q = v
+
+        q = q.reshape(shape)
+        return (scale * q[ :shape[0], :shape[1] ]).astype(np.float32)
 
 class Model(object):
     def __init__(self):
@@ -376,9 +399,10 @@ class Actor(Model):
         self.sess = sess
         self.batch_size = batch_size
 
-        self.state_low = stlow
-        self.state_high = sthigh
-        self.state_range = self.state_high - self.state_low
+        self.state_ran = sthigh - stlow
+        self.state_hlf = np.divide(self.state_ran, 2)
+        self.state_mid = self.state_hlf + stlow
+
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
             dtype=tf.float32,
@@ -386,9 +410,10 @@ class Actor(Model):
             name='StateInput'
             )
 
-        self.action_low = aclow
-        self.action_high = achigh
-        self.action_range = self.action_high - self.action_low
+        self.action_ran = achigh - aclow
+        self.action_hlf = np.divide(self.action_ran, 2)
+        self.action_mid = self.action_hlf + aclow
+
         self.action_dim = action_dim
         self.gradient_in = tf.placeholder(
             dtype=tf.float32,
@@ -396,57 +421,61 @@ class Actor(Model):
             name='GradientInput'
             )
 
-    def __call__(self, OptimizerEn, reuse=False):
-        with tf.variable_scope(self.name, OptimizerEn, reuse=reuse):
-            NetHandle = self.CreateNet(OptimizerEn, layer_norm=True)
+    def __call__(self, OptimizerEn, layer_norm, reuse):
+
+        with tf.variable_scope(name_or_scope=self.name, dtype=tf.float32, reuse=reuse):
+            NetHandle = self.CreateNet(OptimizerEn=OptimizerEn, layer_norm=layer_norm)
         return NetHandle
 
     def CreateNet(self, OptimizerEn=False, layer_norm=False):
-       l0 = tf.divide(tf.subtract(self.state_in, self.state_low), self.state_range)
+       l0 = tf.divide(tf.subtract(self.state_in, self.state_mid), self.state_hlf)
 
        l1 = tf.layers.dense(
             inputs=l0,
             units=30,
             use_bias=True,
-            kernel_initializer=tf.random_normal_initializer(-1/math.sqrt(self.state_dim), 1/math.sqrt(self.state_dim)),
-            bias_initializer=tf.random_uniform_initializer(-0.01, 0.01),
+            kernel_initializer=ortho_init( np.sqrt(2) ),
+            bias_initializer=tf.constant_initializer(0.0),
             trainable=OptimizerEn,
             name='l1',
-            kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006),
             )
 
        if layer_norm:
-           l1 = tf.contrib.layers.layer_norm(l1, center=True, scale=True)
+           l1 = tf.contrib.layers.layer_norm(l1,
+                                             center=True,
+                                             scale=False,
+                                             trainable=True
+            )
        l1 = tf.nn.leaky_relu(l1, alpha=0.05, name='l1_activation')
 
        l2 = tf.layers.dense(
             inputs=l1,
             units=20,
             use_bias=True,
-            kernel_initializer=tf.random_normal_initializer(-1/math.sqrt(30), 1/math.sqrt(30)),
-            bias_initializer=tf.random_uniform_initializer(-0.01, 0.01),
+            kernel_initializer=ortho_init( np.sqrt(2) ),
+            bias_initializer=tf.constant_initializer(0.0),
             trainable=OptimizerEn,
             name='l2',
-            kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)        
             )
 
        if layer_norm:
-           l2 = tf.contrib.layers.layer_norm(l2, center=True, scale=True)
+           l2 = tf.contrib.layers.layer_norm(l2,
+                                             center=True,
+                                             scale=False,
+                                             trainable=True
+            )
        l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
 
        l3 = tf.layers.dense(
             inputs=l2,
             units=self.action_dim,
-            activation=tf.nn.sigmoid,
-            use_bias=True,
-            kernel_initializer=tf.random_normal_initializer(-1/math.sqrt(20), 1/math.sqrt(20)),
-            bias_initializer=tf.random_uniform_initializer(-0.01, 0.01),
+            kernel_initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3),
             trainable=OptimizerEn,
             name='l3',
-            kernel_regularizer=tf.contrib.layers.l2_regularizer(0.006)
             )
+       l3 = tf.nn.tanh(l3)
 
-       return tf.add(tf.multiply(l3, self.action_range), self.action_low)
+       return tf.add(tf.multiply(l3, self.action_hlf), self.action_mid)
 
     def BuildCostGraph(self, NetOut):
         self.cost = tf.reduce_mean(self.gradient_in * NetOut)
@@ -469,9 +498,10 @@ class Critic(Model):
         self.sess = sess
         self.batch_size = batch_size
 
-        self.state_low = stlow
-        self.state_high = sthigh
-        self.state_range = self.state_high - self.state_low
+        self.state_ran = sthigh - stlow
+        self.state_hlf = np.divide(self.state_ran, 2)
+        self.state_mid = self.state_hlf + stlow
+
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
             dtype=tf.float32,
@@ -479,9 +509,10 @@ class Critic(Model):
             name='StateInput'
             )
 
-        self.action_low = aclow
-        self.action_high = achigh
-        self.action_range = self.action_high - self.action_low
+        self.action_ran = achigh - aclow
+        self.action_hlf = np.divide(self.action_ran, 2)
+        self.action_mid = self.action_hlf + aclow
+
         self.action_dim = action_dim
         self.actor_in = tf.placeholder(
             dtype=tf.float32,
@@ -509,79 +540,72 @@ class Critic(Model):
             name='TargetInput'
             )
 
-    def __call__(self, OptimizerEn, reuse=False):
-        with tf.variable_scope(self.name, reuse=reuse):
-            NetHandle = self.CreateNet(OptimizerEn, layer_norm=False)
+    def __call__(self, OptimizerEn, reuse):
+
+        with tf.variable_scope(name_or_scope=self.name, dtype=tf.float32, reuse=reuse):
+            NetHandle = self.CreateNet(OptimizerEn=OptimizerEn)
         return NetHandle
 
 
-    def CreateNet(self, OptimizerEn=False, layer_norm=False):
-        l0_s = tf.divide(tf.subtract(self.state_in, self.state_low), self.state_range)
-        l0_a = tf.divide(tf.subtract(self.actor_in, self.action_low), self.action_range)
+    def CreateNet(self, OptimizerEn=False):
+        l0_s = tf.divide(tf.subtract(self.state_in, self.state_mid), self.state_hlf)
+        l0_a = tf.divide(tf.subtract(self.actor_in, self.action_mid), self.action_hlf)
 
         l1_s_w = tf.get_variable(
                 name='11_s_w',
                 shape=[self.state_dim, 50],
                 dtype=tf.float32,
-                initializer=tf.random_normal_initializer(-1/math.sqrt(self.state_dim), 1/math.sqrt(self.state_dim)),
-                regularizer=tf.contrib.layers.l2_regularizer(0.006),
+                initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn
                 )
         l1_a_w = tf.get_variable(
                 name='l1_a_w',
                 shape=[self.action_dim, 50],
                 dtype=tf.float32,
-                initializer=tf.random_normal_initializer(-1/math.sqrt(self.action_dim), 1/math.sqrt(self.action_dim)),
-                regularizer=tf.contrib.layers.l2_regularizer(0.006),
+                initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn
                 )
         l1_b = tf.get_variable(
                 name='l1_b',
                 shape=[50],
                 dtype=tf.float32,
-                initializer=tf.random_uniform_initializer(-0.01, 0.01),
+                initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
                 )
         l1 = tf.matmul(l0_a, l1_a_w) + tf.matmul(l0_s, l1_s_w) + l1_b
-        if layer_norm:
-            l1 = tf.contrib.layers.layer_norm(l1, center=True, scale=True)
         l1 = tf.nn.leaky_relu(l1, alpha=0.05, name="l1_activation")
 
         l2_w = tf.get_variable(
                 name='l2_w',
                 shape=[50, 40],
                 dtype=tf.float32,
-                initializer=tf.random_normal_initializer(-1/math.sqrt(50), 1/math.sqrt(50)),
-                regularizer=tf.contrib.layers.l2_regularizer(0.006),
+                initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn                
                 )
         l2_b = tf.get_variable(
                 name='l2_b',
                 shape=[40],
                 dtype=tf.float32,
-                initializer=tf.random_uniform_initializer(-0.01, 0.01),
+                initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
                 )
         l2 = tf.matmul(l1, l2_w) + l2_b
-        if layer_norm:
-            l2 = tf.contrib.layers.layer_norm(l2, center=True, scale=True)
         l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
 
         l3_w = tf.get_variable(
                 name='l3_w',
                 shape=[40, 1],
                 dtype=tf.float32,
-                initializer=tf.random_normal_initializer(-1/math.sqrt(40), 1/math.sqrt(40)),
-                regularizer=tf.contrib.layers.l2_regularizer(0.006),
+                initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3),
                 trainable=OptimizerEn
                 ) 
         l3_b = tf.get_variable(
                 name='l3_b',
                 shape=[1],
                 dtype=tf.float32,
-                initializer=tf.random_uniform_initializer(-0.01, 0.01),
+                initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
-                )  
+                )
         l3 = tf.matmul(l2, l3_w) + l3_b
 
         return l3
