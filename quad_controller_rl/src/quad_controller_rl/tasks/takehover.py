@@ -7,10 +7,14 @@ import numpy as np
 class HoverTask(BaseTask):
     def __init__(self):
         self.observation_space = spaces.Box(
-            np.array( [-150.0, -150.0,   0.0,
-                       -150.0, -150.0, -10.0] ),
-            np.array( [ 150.0,  150.0, 300.0,
-                        150.0,  150.0, 290.0] )
+            np.array(
+                [-150.0, -150.0,   0.0,
+                 -150.0, -150.0, -10.0]
+            ),
+            np.array(
+                [ 150.0,  150.0, 300.0,
+                  150.0,  150.0, 290.0]
+            )
         )
 
         self.action_space = spaces.Box(
@@ -18,8 +22,7 @@ class HoverTask(BaseTask):
             np.array( [ 25.0,  25.0,  25.0,  25.0,  25.0,  25.0] )
         )
 
-        self.target_pose = Point(0.0, 0.0, 10)
-        self.last_pose = Point(0.0, 0.0, 10.0)
+        self.target_pose = Point(0.0, 0.0, 10.0)
 
     def reset(self):
         return Pose(position=Point(0.0, 0.0, np.random.normal(10, 0.5)), orientation=Quaternion(0.0, 0.0, 0.0, 0.0)), \
@@ -29,18 +32,16 @@ class HoverTask(BaseTask):
         Reward = 0
         Done = False
         State = np.array(
-            [(pose.position.x),                      (pose.position.y),                      (pose.position.z),
-             (pose.position.x - self.target_pose.x), (pose.position.y - self.target_pose.y), (pose.position.z - self.target_pose.z)]
+            [
+                (pose.position.x),                      (pose.position.y),                      (pose.position.z),
+                (pose.position.x - self.target_pose.x), (pose.position.y - self.target_pose.y), (pose.position.z - self.target_pose.z)
+            ]
         )
 
         Reward -= \
-            abs(pose.position.x - self.last_pose.x) + \
-            abs(pose.position.y - self.last_pose.y)
-
-        Reward -= \
+            abs(pose.position.x - self.target_pose.x) + \
+            abs(pose.position.y - self.target_pose.y) + \
             abs(pose.position.z - self.target_pose.z)
-
-        self.last_pose = pose.position
 
         if timestamp >= 5:
             Done = True
