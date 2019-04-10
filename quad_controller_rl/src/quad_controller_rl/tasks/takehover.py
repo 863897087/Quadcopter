@@ -1,10 +1,9 @@
 from quad_controller_rl.tasks.base_task import BaseTask
 from geometry_msgs.msg import Vector3, Point, Quaternion, Pose, Twist, Wrench
 from gym import spaces
-from collections import namedtuple
 import numpy as np
 
-class HoverTask(BaseTask):
+class HOVER(BaseTask):
     def __init__(self):
         self.observation_space = spaces.Box(
             np.array(
@@ -29,7 +28,7 @@ class HoverTask(BaseTask):
                Twist(linear=Vector3(0.0, 0.0, 0.0), angular=Vector3(0.0, 0.0, 0.0))
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
-        Reward = 0
+        Reward = 0.0
         Done = False
         State = np.array(
             [

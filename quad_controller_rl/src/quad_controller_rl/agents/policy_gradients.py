@@ -45,7 +45,7 @@ class DDPG(BaseAgent):
         return date
 
     def posprocess(self, date):
-        if True:
+        if False:
             tempdate = np.array([0, 0, 0, 0, 0, 0])
             if date is not None:
                 tempdate[0:3] = date[0][0:3]
@@ -62,7 +62,6 @@ class DDPG(BaseAgent):
         self.noise.reset()
         print("DDPG reset")
         self.total_reward = 0
-        self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
 
     def write_status(self, status):
         df_status = pd.DataFrame([status], columns=self.status_columns)
@@ -88,10 +87,12 @@ class DDPG(BaseAgent):
             self.total_reward += self.reward
 
         self.state = self.next_state
+
+        self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
         self.action = self.train.operation_param_noise_action(self.state)
+        #self.action = self.action + self.noise.sample()
         if self.action is None:
             print("self action is None")
-        #self.action = self.action + self.noise.sample()
 
         if 10000 < len(self.experience) and 0 == (len(self.experience) % 1):
             #print("train {}".format(len(self.experience)))
