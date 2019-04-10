@@ -29,7 +29,7 @@ class DDPG(BaseAgent):
             self.preprocess(self.task.observation_space.high)
         )
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.2), desired_action_stddev=float(0.1), adoption_coefficient=float(1.01))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.3), desired_action_stddev=float(0.15), adoption_coefficient=float(1.05))
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
@@ -93,9 +93,9 @@ class DDPG(BaseAgent):
             print("self action is None")
         #self.action = self.action + self.noise.sample()
 
-        if 8000 < len(self.experience) and 0 == (len(self.experience) % 400):
-            print("train {}".format(len(self.experience)))
-            for times in range(25):
+        if 10000 < len(self.experience) and 0 == (len(self.experience) % 1):
+            #print("train {}".format(len(self.experience)))
+            for times in range(1):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(
                     self.train.batch_size)
 
@@ -229,6 +229,27 @@ class Train:
         self.sess.run(self.actor_copy_policy)
         self.sess.run(self.critic_copy_policy)
 
+        self.graph_interface()
+
+    def graph_interface(self):
+        print("ALL COLLECTION KEYS LIST: ")
+        self.keys_names = tf.get_default_graph().get_all_collection_keys()
+        print(self.keys_names)
+
+        for name in self.keys_names:
+            print("KEY", name)
+            for variable in tf.get_default_graph().get_collection(name):
+                print(variable)
+
+        for op in tf.get_default_graph().get_operations():
+            print(op)
+
+        self.saver = tf.train.Saver(
+            max_to_keep=10,
+            keep_checkpoint_every_n_hours=1
+        )
+
+
     def perturb_actor_updates(self, actor, actor_param_noise):
         updates = []
         for var, perturb_var in zip(actor.vars, actor_param_noise.vars):
@@ -241,7 +262,7 @@ class Train:
                 )
             else:
                 updates.append(tf.assign(perturb_var, var))
-        return tf.group(*updates)
+        return updates
 
     def copy_updates(self, actor, copy_param):
         updates = []
@@ -249,7 +270,7 @@ class Train:
             updates.append(
                 tf.assign(copy_var, base_var)
             )
-        return tf.group(*updates)
+        return updates
 
     def upgrade_updates(self, actor, upgrade_param, learn_rate):
         updates = []
@@ -258,24 +279,25 @@ class Train:
                 tf.assign(
                     upgrade_var,
                     base_var * learn_rate + upgrade_var * (1 - learn_rate)))
-        return tf.group(*updates)
+        return updates
 
     def setup_param_noise(self):
         self.actor_param_noise = copy(self.actor)
         self.actor_param_noise.name = "param_noise_actor"
         self.actor_param_noise_tf = self.actor_param_noise(OptimizerEn=False, layer_norm=True, reuse=False)
-        self.actor_param_noise_policy = self.perturb_actor_updates(self.actor, self.actor_param_noise)
+        self.actor_param_noise_policy = tf.group(* self.perturb_actor_updates(self.actor, self.actor_param_noise), name='actor_param_noise_policy' )
 
         self.actor_adaptive_param_noise = copy(self.actor)
         self.actor_adaptive_param_noise.name = "adaptive_param_noise_actor"
         self.actor_adaptive_param_noise_tf = self.actor_adaptive_param_noise(OptimizerEn=False, layer_norm=True, reuse=False)
-        self.actor_adaptive_param_noise_policy = self.perturb_actor_updates(self.actor, self.actor_adaptive_param_noise)
+        self.actor_adaptive_param_noise_policy = tf.group(* self.perturb_actor_updates(self.actor, self.actor_adaptive_param_noise), name='actor_adaptive_param_noise_policy' )
         self.actor_adaptive_param_noise_distance = tf.sqrt(
             tf.reduce_mean(
                 tf.square(
                     self.actor_base_tf - self.actor_adaptive_param_noise_tf
                 )
-            )
+            ),
+            name='actor_adaptive_param_noise_distance'
         )
 
     def setup_actor_base(self):
@@ -288,8 +310,8 @@ class Train:
         self.actor_copy = copy(self.actor)
         self.actor_copy.name = "copy_actor"
         self.actor_copy_ty = self.actor_copy(OptimizerEn=False, layer_norm=True, reuse=False)
-        self.actor_copy_policy = self.copy_updates(self.actor, self.actor_copy)
-        self.actor_upgrade_policy = self.upgrade_updates(self.actor, self.actor_copy, 0.00001)
+        self.actor_copy_policy = tf.group(* self.copy_updates(self.actor, self.actor_copy), name='actor_copy_policy' )
+        self.actor_upgrade_policy = tf.group(* self.upgrade_updates(self.actor, self.actor_copy, 0.00001), name='actor_upgrade_policy' )
 
     def setup_critic_base(self):
         self.critic.name = "base_critic"
@@ -302,8 +324,8 @@ class Train:
         self.critic_copy = copy(self.critic)
         self.critic_copy.name = "copy_critic"
         self.critic_copy_ty = self.critic_copy(OptimizerEn=False, reuse=False)
-        self.critic_copy_policy = self.copy_updates(self.critic, self.critic_copy)
-        self.critic_upgrade_policy = self.upgrade_updates(self.critic, self.critic_copy, 0.0001)
+        self.critic_copy_policy = tf.group(* self.copy_updates(self.critic, self.critic_copy), name='critic_copy_policy' )
+        self.critic_upgrade_policy = tf.group(* self.upgrade_updates(self.critic, self.critic_copy, 0.0001), name='critic_upgrade_policy' )
 
         self.critic.BuildTargetGraph(self.critic_copy_ty, 0.99)
 
@@ -358,6 +380,12 @@ class Train:
 
         self.actor.writer.add_summary(cost_actor_summary, iters)
 
+        self.saver.save(
+            sess=self.sess,
+            save_path="./hover/policy",
+            write_meta_graph=True
+        )
+
 def ortho_init( scale=1.0 ):
     def _ortho_init(shape, dtype, partition_info=None):
         shape = tuple(shape)
@@ -407,7 +435,7 @@ class Actor(Model):
         self.state_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, self.state_dim],
-            name='StateInput'
+            name='action_state_in'
             )
 
         self.action_ran = achigh - aclow
@@ -418,7 +446,7 @@ class Actor(Model):
         self.gradient_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, self.action_dim],
-            name='GradientInput'
+            name='action_gradient_in'
             )
 
     def __call__(self, OptimizerEn, layer_norm, reuse):
@@ -475,14 +503,14 @@ class Actor(Model):
             )
        l3 = tf.nn.tanh(l3)
 
-       return tf.add(tf.multiply(l3, self.action_hlf), self.action_mid)
+       return tf.add(tf.multiply(l3, self.action_hlf), self.action_mid, name='action_net_out')
 
     def BuildCostGraph(self, NetOut):
-        self.cost = tf.reduce_mean(self.gradient_in * NetOut)
-        self.train = tf.train.AdamOptimizer(-0.001).minimize(self.cost)
+        self.cost = tf.reduce_mean(self.gradient_in * NetOut, name='action_cost')
+        self.train = tf.train.AdamOptimizer(-0.001).minimize(self.cost, name='action_train')
 
     def BuildSummaryGraph(self):
-        self.cost_summary = tf.summary.scalar('actor_cost', self.cost)
+        self.cost_summary = tf.summary.scalar('actor_cost', self.cost )
         self.merged = tf.summary.merge_all()
         self.writer = tf.summary.FileWriter('/home/robond/Desktop/summary_actor')
 
@@ -506,7 +534,7 @@ class Critic(Model):
         self.state_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, self.state_dim],
-            name='StateInput'
+            name='critic_state_in'
             )
 
         self.action_ran = achigh - aclow
@@ -517,27 +545,27 @@ class Critic(Model):
         self.actor_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, self.action_dim],
-            name='ActorInput'            
+            name='critic_action_in'
             )
     
         self.reward_dim = reward_dim
         self.reward_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, self.reward_dim],
-            name='RewardInput'
+            name='critic_reward_in'
             )
 
         self.done_dim = done_dim
         self.done_in = tf.placeholder(
             dtype=tf.bool,
             shape=[None, self.done_dim],
-            name='DoneInput'
+            name='critic_done_in'
         )
 
         self.target_in = tf.placeholder(
             dtype=tf.float32,
             shape=[None, 1],
-            name='TargetInput'
+            name='critic_target_in'
             )
 
     def __call__(self, OptimizerEn, reuse):
@@ -606,27 +634,35 @@ class Critic(Model):
                 initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
                 )
-        l3 = tf.matmul(l2, l3_w) + l3_b
+        l3 = tf.add(
+            tf.matmul(l2, l3_w),
+            l3_b,
+            name='critic_net_out'
+        )
 
         return l3
 
     def BuildTargetGraph(self, NetOut, GAMMA=0.5):
-        self.target = tf.where(
-            self.done_in,
-            tf.constant(0, dtype=tf.float32, shape=[self.batch_size, 1]),
-            NetOut * GAMMA
-        ) + self.reward_in
+        self.target = tf.add(
+            tf.where(
+                self.done_in,
+                tf.constant(0, dtype=tf.float32, shape=[self.batch_size, 1]),
+                NetOut * GAMMA
+            ),
+            self.reward_in,
+            name='critic_target'
+        )
 
     def BuildCostGraph(self, NetOut):
-        self.cost = tf.reduce_mean(tf.square(self.target_in - NetOut))
-        self.train = tf.train.AdamOptimizer(0.001).minimize(self.cost)
+        self.cost = tf.reduce_mean(tf.square(self.target_in - NetOut), name='critic_cost')
+        self.train = tf.train.AdamOptimizer(0.001).minimize(self.cost, name='critic_train')
 
     def BuildGradientGraph(self, NetOut):
          gradient = tf.gradients(NetOut, self.actor_in)
-         self.gradient = tf.reshape(gradient, (self.batch_size, self.action_dim))
+         self.gradient = tf.reshape(gradient, (self.batch_size, self.action_dim), name='critic_gradient')
 
     def BuildSummaryGraph(self, NetOut):
-        self.cost_summary = tf.summary.scalar('critic_cost', self.cost)
+        self.cost_summary = tf.summary.scalar('critic_cost', self.cost )
         self.QB_summary = tf.summary.scalar('critic_Q', tf.reduce_mean(NetOut))
         self.gradient_summary = tf.summary.scalar('critic_gradient', tf.reduce_mean(self.gradient))
         self.merged = tf.summary.merge_all()
