@@ -7,10 +7,10 @@ class DOWN(BaseTask):
     def __init__(self):
         self.observation_space = spaces.Box(
             np.array(
-                [-150.0, -150.0,   0.0, -150.0, -150.0, -10.0]
+                [-150.0, -150.0,   0.0, -150.0, -150.0, -10.0, -1.0, -1.0, -1.0, -1.0]
             ),
             np.array(
-                [ 150.0,  150.0, 300.0,  150.0,  150.0, 290.0]
+                [ 150.0,  150.0, 300.0,  150.0,  150.0, 290.0,  1.0,  1.0,  1.0,  1.0]
             )
         )
 
@@ -37,7 +37,8 @@ class DOWN(BaseTask):
                 (pose.position.x), (pose.position.y), (pose.position.z),
                 (pose.position.x - self.target_pose.x),
                 (pose.position.y - self.target_pose.y),
-                (pose.position.z - self.target_pose.z)
+                (pose.position.z - self.target_pose.z),
+                (pose.orientation.x), (pose.orientation.y), (pose.orientation.z), (pose.orientation.w)
             ]
         )
 
