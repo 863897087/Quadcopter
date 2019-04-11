@@ -29,17 +29,19 @@ class DDPG(BaseAgent):
             self.preprocess(self.task.observation_space.high)
         )
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.3), desired_action_stddev=float(0.15), adoption_coefficient=float(1.05))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(1.0), desired_action_stddev=float(0.1), adoption_coefficient=float(1.000001))
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
         self.status_columns = ['episode', 'total_reward']
         self.episode_num = 1
         self.total_reward = 0
+        self.max_total_reward = -1000
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
         self.episode = 0
         self.action_filename = os.path.join(util.get_param('out'), "action_{}.csv".format(util.get_timestamp()))
+        print("Saving action")
 
     def preprocess(self, date):
         return date
@@ -71,9 +73,9 @@ class DDPG(BaseAgent):
         if input is None:
             return
         self.episode += 1
-        temp = np.asarray([self.episode,0,0,0,0,0,0])
-        temp[1:] = input[0]
-        df_status = pd.DataFrame([temp], columns=['episode','l1','l2','l3','l4','l5','l6'])
+        temp = np.asarray([self.episode,self.adaptive_noise.current_stddev,0,0,0,0,0,0])
+        temp[2:] = input[0]
+        df_status = pd.DataFrame([temp], columns=['episode','noise','l1','l2','l3','l4','l5','l6'])
         df_status.to_csv(self.action_filename, mode='a', index=False, header=not os.path.isfile(self.action_filename))
 
     def step(self, state, reward, done):
@@ -83,8 +85,11 @@ class DDPG(BaseAgent):
         self.done = done
 
         if self.state is not None and self.action is not None:
-            self.experience.push(self.state, self.action, self.reward, self.next_state, self.done)
             self.total_reward += self.reward
+            if self.done is True:
+                self.experience.push(self.state, self.action, self.total_reward, self.next_state, self.done)
+            else:
+                self.experience.push(self.state, self.action, self.reward,       self.next_state, self.done)
 
         self.state = self.next_state
 
@@ -96,13 +101,9 @@ class DDPG(BaseAgent):
 
         if 10000 < len(self.experience) and 0 == (len(self.experience) % 1):
             #print("train {}".format(len(self.experience)))
-            for times in range(1):
+            for times in range(10):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(
                     self.train.batch_size)
-
-                self.adaptive_noise.adapt(
-                    self.train.operation_param_noise_adaptive(exp_state, self.adaptive_noise.current_stddev)
-                )
 
                 cost_critic_summary, QB_summary = self.train.operation_train_critic(
                     exp_state, exp_action, exp_reward, exp_next_state, exp_done
@@ -110,6 +111,10 @@ class DDPG(BaseAgent):
                 gradient_summary, cost_actor_summary = self.train.operation_train_actor(exp_state)
 
                 self.train.operation_update_net()
+
+                self.adaptive_noise.adapt(
+                    self.train.operation_param_noise_adaptive(exp_state, self.adaptive_noise.current_stddev)
+                )
 
                 if times % 5 == 0:
                     self.train.operation_write_summary(
@@ -122,9 +127,18 @@ class DDPG(BaseAgent):
                 self.train.iterations += 1
 
         if done:
-            print("done {}".format(len(self.experience)))
+            print("done {} max reward {} reward {}".format(len(self.experience), self.max_total_reward, self.total_reward))
             self.write_status([self.episode_num, self.total_reward])
             self.episode_num += 1
+
+            if self.max_total_reward < self.total_reward:
+                self.max_total_reward = self.total_reward
+                self.train.saver.save(
+                    sess=self.train.sess,
+                    save_path="./hover/policy",
+                    global_step=0,
+                    write_meta_graph=True
+                )
 
             self.reset()
 
@@ -242,13 +256,7 @@ class Train:
             for variable in tf.get_default_graph().get_collection(name):
                 print(variable)
 
-        for op in tf.get_default_graph().get_operations():
-            print(op)
-
-        self.saver = tf.train.Saver(
-            max_to_keep=10,
-            keep_checkpoint_every_n_hours=1
-        )
+        self.saver = tf.train.Saver( max_to_keep=100 )
 
 
     def perturb_actor_updates(self, actor, actor_param_noise):
@@ -380,12 +388,6 @@ class Train:
         self.critic.writer.add_summary(gradient_critic_summary, iters)
 
         self.actor.writer.add_summary(cost_actor_summary, iters)
-
-        self.saver.save(
-            sess=self.sess,
-            save_path="./hover/policy",
-            write_meta_graph=True
-        )
 
 def ortho_init( scale=1.0 ):
     def _ortho_init(shape, dtype, partition_info=None):
