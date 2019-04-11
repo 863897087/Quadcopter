@@ -21,39 +21,43 @@ class DDPG(BaseAgent):
         self.done_dim = 1
 
         self.experience = Experience(self.action_dim, self.state_dim, 1000000)
-
-        self.train = Train(self.action_dim, self.state_dim, self.reward_dim, self.done_dim,
-            self.preprocess(self.task.action_space.low),
-            self.preprocess(self.task.action_space.high),
-            self.preprocess(self.task.observation_space.low),
-            self.preprocess(self.task.observation_space.high)
-        )
+        self.train = Train(self.action_dim, self.state_dim, self.reward_dim, self.done_dim)
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(1.0), desired_action_stddev=float(0.1), adoption_coefficient=float(1.000001))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.5), desired_action_stddev=float(0.15), adoption_coefficient=float(1.000001))
+
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
         self.status_columns = ['episode', 'total_reward']
-        self.episode_num = 1
-        self.total_reward = 0
+        self.reward_num = 1
+        self.total_reward = -1000
         self.max_total_reward = -1000
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
-        self.episode = 0
+        self.action_num = 1
         self.action_filename = os.path.join(util.get_param('out'), "action_{}.csv".format(util.get_timestamp()))
         print("Saving action")
 
-    def preprocess(self, date):
-        return date
+    def preprocess(self, dateIn):
+        self.state_ran = self.task.observation_space.high - self.task.observation_space.low
+        self.state_hlf = np.divide(self.state_ran, 2)
+        self.state_mid = self.state_hlf + self.task.observation_space.low
+        self.action_ran = self.task.action_space.high - self.task.action_space.low
+        self.action_hlf = np.divide(self.action_ran, 2)
+        self.action_mid = self.action_hlf + self.task.action_space.low
 
-    def posprocess(self, date):
-        if False:
-            tempdate = np.array([0, 0, 0, 0, 0, 0])
-            if date is not None:
-                tempdate[0:3] = date[0][0:3]
-            return tempdate
-        else:
-            return date
+        dateOut = dateIn.reshape(1, -1)
+
+        return (dateOut - self.state_mid) / self.state_hlf
+
+    def posprocess(self, dateIn):
+        dateOut = np.array([0, 0, 0, 0, 0, 0])
+        if self.action is not None:
+            if True:
+                dateOut      = (dateIn * self.action_hlf + self.action_mid)[0]
+            else:
+                dateOut[0:3] = (dateIn * self.action_hlf + self.action_mid)[0][0:3]
+        return dateOut
 
     def reset(self):
         self.next_state = None
@@ -65,24 +69,25 @@ class DDPG(BaseAgent):
         print("DDPG reset")
         self.total_reward = 0
 
-    def write_status(self, status):
+    def write_reward(self):
+        status = [self.reward_num, self.total_reward]
         df_status = pd.DataFrame([status], columns=self.status_columns)
         df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
+        self.reward_num += 1
 
-    def write_action_log(self, input):
-        if input is None:
+    def write_action(self):
+        if self.action is None:
             return
-        self.episode += 1
-        temp = np.asarray([self.episode,self.adaptive_noise.current_stddev,0,0,0,0,0,0])
-        temp[2:] = input[0]
+        temp = np.asarray([self.action_num, self.adaptive_noise.current_stddev,0,0,0,0,0,0])
+        temp[2:] = self.action[0]
         df_status = pd.DataFrame([temp], columns=['episode','noise','l1','l2','l3','l4','l5','l6'])
         df_status.to_csv(self.action_filename, mode='a', index=False, header=not os.path.isfile(self.action_filename))
+        self.action_num += 1
 
     def step(self, state, reward, done):
-        self.next_state = self.preprocess(state)
-        self.next_state = self.next_state.reshape(1, -1)
         self.reward = reward
         self.done = done
+        self.next_state = self.preprocess( state )
 
         if self.state is not None and self.action is not None:
             self.total_reward += self.reward
@@ -91,19 +96,14 @@ class DDPG(BaseAgent):
             else:
                 self.experience.push(self.state, self.action, self.reward,       self.next_state, self.done)
 
-        self.state = self.next_state
-
         self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
+        self.state = self.next_state
         self.action = self.train.operation_param_noise_action(self.state)
         #self.action = self.action + self.noise.sample()
-        if self.action is None:
-            print("self action is None")
 
         if 10000 < len(self.experience) and 0 == (len(self.experience) % 1):
-            #print("train {}".format(len(self.experience)))
-            for times in range(10):
-                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(
-                    self.train.batch_size)
+            for times in range(1):
+                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(self.train.batch_size)
 
                 cost_critic_summary, QB_summary = self.train.operation_train_critic(
                     exp_state, exp_action, exp_reward, exp_next_state, exp_done
@@ -122,28 +122,19 @@ class DDPG(BaseAgent):
                         QB_summary,
                         gradient_summary,
                         cost_actor_summary,
-                        self.train.iterations
                     )
-                self.train.iterations += 1
 
         if done:
             print("done {} max reward {} reward {}".format(len(self.experience), self.max_total_reward, self.total_reward))
-            self.write_status([self.episode_num, self.total_reward])
-            self.episode_num += 1
+            self.write_reward()
 
             if self.max_total_reward < self.total_reward:
                 self.max_total_reward = self.total_reward
-                self.train.saver.save(
-                    sess=self.train.sess,
-                    save_path="./hover/policy",
-                    global_step=0,
-                    write_meta_graph=True
-                )
-
+                self.train.saver.save(sess=self.train.sess, save_path="./hover/policy", global_step=0, write_meta_graph=True)
             self.reset()
+        self.write_action()
 
-        self.write_action_log(self.action)
-        return self.posprocess(self.action)
+        return self.posprocess( self.action )
 
 class AdaptiveParamNoise:
     def __init__(self, initial_stddev=0.1, desired_action_stddev=0.1, adoption_coefficient=1.01):
@@ -209,30 +200,26 @@ class Experience:
         return state, action, reward, next_state, done
 
 class Train:
-    def __init__(self, action_dim, state_dim, reward_dim, done_dim, aclow, achigh, stlow, sthigh):
-        self.sess = tf.Session()
-        self.action_low = aclow
-        self.action_high = achigh
-        self.action_dim = action_dim
-
-        self.state_low = stlow
-        self.state_high = sthigh
-        self.state_dim = state_dim
-
-        self.reward_dim = reward_dim
-        self.done_dim = done_dim
+    def __init__(self, action_dim, state_dim, reward_dim, done_dim):
 
         self.batch_size = 64
         self.iterations = 0
+        self.sess = tf.Session()
+
+        self.action_dim = action_dim
+        self.state_dim = state_dim
+        self.reward_dim = reward_dim
+        self.done_dim = done_dim
 
         self.param_noise_stddev = tf.placeholder(tf.float32, shape=(), name='param_noise_stddev')
 
-        self.critic = Critic(self.sess, self.batch_size,
-                             self.action_dim, self.state_dim, self.reward_dim, self.done_dim,
-                             self.action_low, self.action_high, self.state_low, self.state_high)
-        self.actor = Actor(self.sess, self.batch_size,
-                           self.action_dim, self.state_dim,
-                           self.action_low, self.action_high, self.state_low, self.state_high)
+        self.critic = Critic(
+            self.sess, self.batch_size, self.action_dim, self.state_dim, self.reward_dim, self.done_dim
+        )
+
+        self.actor = Actor(
+            self.sess, self.batch_size, self.action_dim, self.state_dim
+        )
 
         self.setup_actor_base()
         self.setup_actor_copy()
@@ -320,7 +307,7 @@ class Train:
         self.actor_copy.name = "copy_actor"
         self.actor_copy_ty = self.actor_copy(OptimizerEn=False, layer_norm=True, reuse=False)
         self.actor_copy_policy = tf.group(* self.copy_updates(self.actor, self.actor_copy), name='actor_copy_policy' )
-        self.actor_upgrade_policy = tf.group(* self.upgrade_updates(self.actor, self.actor_copy, 0.00001), name='actor_upgrade_policy' )
+        self.actor_upgrade_policy = tf.group(* self.upgrade_updates(self.actor, self.actor_copy, 0.0001), name='actor_upgrade_policy' )
 
     def setup_critic_base(self):
         self.critic.name = "base_critic"
@@ -334,7 +321,7 @@ class Train:
         self.critic_copy.name = "copy_critic"
         self.critic_copy_ty = self.critic_copy(OptimizerEn=False, reuse=False)
         self.critic_copy_policy = tf.group(* self.copy_updates(self.critic, self.critic_copy), name='critic_copy_policy' )
-        self.critic_upgrade_policy = tf.group(* self.upgrade_updates(self.critic, self.critic_copy, 0.0001), name='critic_upgrade_policy' )
+        self.critic_upgrade_policy = tf.group(* self.upgrade_updates(self.critic, self.critic_copy, 0.000001), name='critic_upgrade_policy' )
 
         self.critic.BuildTargetGraph(self.critic_copy_ty, 0.99)
 
@@ -382,12 +369,13 @@ class Train:
         cost_summary, QB_summary = self.critic.operation_learn(target, action, state)
         return cost_summary, QB_summary
 
-    def operation_write_summary(self, cost_critic_summary, QB_critic_summary, gradient_critic_summary, cost_actor_summary, iters):
-        self.critic.writer.add_summary(cost_critic_summary, iters)
-        self.critic.writer.add_summary(QB_critic_summary, iters)
-        self.critic.writer.add_summary(gradient_critic_summary, iters)
+    def operation_write_summary(self, cost_critic_summary, QB_critic_summary, gradient_critic_summary, cost_actor_summary):
+        self.critic.writer.add_summary(cost_critic_summary,     self.iterations)
+        self.critic.writer.add_summary(QB_critic_summary,       self.iterations)
+        self.critic.writer.add_summary(gradient_critic_summary, self.iterations)
+        self.actor.writer.add_summary(cost_actor_summary,       self.iterations)
 
-        self.actor.writer.add_summary(cost_actor_summary, iters)
+        self.iterations += 1
 
 def ortho_init( scale=1.0 ):
     def _ortho_init(shape, dtype, partition_info=None):
@@ -424,15 +412,11 @@ class Model(object):
         return [var for var in self.train_vars if 'LayerNorm' not in var.name]
 
 class Actor(Model):
-    def __init__(self, sess, batch_size, action_dim, state_dim, aclow, achigh, stlow, sthigh):
+    def __init__(self, sess, batch_size, action_dim, state_dim):
         super().__init__()
 
         self.sess = sess
         self.batch_size = batch_size
-
-        self.state_ran = sthigh - stlow
-        self.state_hlf = np.divide(self.state_ran, 2)
-        self.state_mid = self.state_hlf + stlow
 
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
@@ -440,10 +424,6 @@ class Actor(Model):
             shape=[None, self.state_dim],
             name='action_state_in'
             )
-
-        self.action_ran = achigh - aclow
-        self.action_hlf = np.divide(self.action_ran, 2)
-        self.action_mid = self.action_hlf + aclow
 
         self.action_dim = action_dim
         self.gradient_in = tf.placeholder(
@@ -459,7 +439,7 @@ class Actor(Model):
         return NetHandle
 
     def CreateNet(self, OptimizerEn=False, layer_norm=False):
-       l0 = tf.divide(tf.subtract(self.state_in, self.state_mid), self.state_hlf)
+       l0 = self.state_in
 
        l1 = tf.layers.dense(
             inputs=l0,
@@ -477,7 +457,7 @@ class Actor(Model):
                                              scale=False,
                                              trainable=True
             )
-       l1 = tf.nn.leaky_relu(l1, alpha=0.05, name='l1_activation')
+       l1 = tf.nn.elu(l1)
 
        l2 = tf.layers.dense(
             inputs=l1,
@@ -495,7 +475,7 @@ class Actor(Model):
                                              scale=False,
                                              trainable=True
             )
-       l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
+       l2 = tf.nn.elu(l2)
 
        l3 = tf.layers.dense(
             inputs=l2,
@@ -504,13 +484,12 @@ class Actor(Model):
             trainable=OptimizerEn,
             name='l3',
             )
-       l3 = tf.nn.tanh(l3)
 
-       return tf.add(tf.multiply(l3, self.action_hlf), self.action_mid, name='action_net_out')
+       return tf.nn.tanh(l3, name='action_net_out')
 
     def BuildCostGraph(self, NetOut):
-        self.cost = tf.reduce_mean(self.gradient_in * NetOut, name='action_cost')
-        self.train = tf.train.AdamOptimizer(-0.001).minimize(self.cost, name='action_train')
+        self.cost = tf.reduce_mean( tf.multiply( self.gradient_in, NetOut ), name='action_cost')
+        self.train = tf.train.AdamOptimizer(-0.001).minimize( self.cost, name='action_train')
 
     def BuildSummaryGraph(self):
         self.cost_summary = tf.summary.scalar('actor_cost', self.cost )
@@ -523,15 +502,11 @@ class Actor(Model):
 
         
 class Critic(Model):
-    def __init__(self, sess, batch_size, action_dim, state_dim, reward_dim, done_dim, aclow, achigh, stlow, sthigh):
+    def __init__(self, sess, batch_size, action_dim, state_dim, reward_dim, done_dim):
         super().__init__()
 
         self.sess = sess
         self.batch_size = batch_size
-
-        self.state_ran = sthigh - stlow
-        self.state_hlf = np.divide(self.state_ran, 2)
-        self.state_mid = self.state_hlf + stlow
 
         self.state_dim = state_dim
         self.state_in = tf.placeholder(
@@ -539,10 +514,6 @@ class Critic(Model):
             shape=[None, self.state_dim],
             name='critic_state_in'
             )
-
-        self.action_ran = achigh - aclow
-        self.action_hlf = np.divide(self.action_ran, 2)
-        self.action_mid = self.action_hlf + aclow
 
         self.action_dim = action_dim
         self.actor_in = tf.placeholder(
@@ -579,8 +550,8 @@ class Critic(Model):
 
 
     def CreateNet(self, OptimizerEn=False):
-        l0_s = tf.divide(tf.subtract(self.state_in, self.state_mid), self.state_hlf)
-        l0_a = tf.divide(tf.subtract(self.actor_in, self.action_mid), self.action_hlf)
+        l0_s = self.state_in
+        l0_a = self.actor_in
 
         l1_s_w = tf.get_variable(
                 name='11_s_w',
@@ -604,7 +575,7 @@ class Critic(Model):
                 trainable=OptimizerEn
                 )
         l1 = tf.matmul(l0_a, l1_a_w) + tf.matmul(l0_s, l1_s_w) + l1_b
-        l1 = tf.nn.leaky_relu(l1, alpha=0.05, name="l1_activation")
+        l1 = tf.nn.elu(l1)
 
         l2_w = tf.get_variable(
                 name='l2_w',
@@ -621,7 +592,7 @@ class Critic(Model):
                 trainable=OptimizerEn
                 )
         l2 = tf.matmul(l1, l2_w) + l2_b
-        l2 = tf.nn.leaky_relu(l2, alpha=0.05, name="l2_activation")
+        l2 = tf.nn.elu(l2)
 
         l3_w = tf.get_variable(
                 name='l3_w',
