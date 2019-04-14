@@ -7,14 +7,14 @@ class HOVER(BaseTask):
     def __init__(self):
         self.observation_space = spaces.Box(
             np.array(
-                [-150.0, -150.0,   0.0,
-                 -150.0, -150.0, -10.0,
-                   -1.0,   -1.0,  -1.0, -1.0]
+                [ 0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
             ),
             np.array(
-                [ 150.0,  150.0, 300.0,
-                  150.0,  150.0, 290.0,
-                    1.0,    1.0,   1.0,  1.0]
+                [ 0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
             )
         )
 
@@ -38,16 +38,25 @@ class HOVER(BaseTask):
                 (pose.position.x - self.target_pose.x),
                 (pose.position.y - self.target_pose.y),
                 (pose.position.z - self.target_pose.z),
-                (pose.orientation.x), (pose.orientation.y),  (pose.orientation.z),  (pose.orientation.w)
+                (pose.orientation.x),    (pose.orientation.y),    (pose.orientation.z),   (pose.orientation.w),
+                (angular_velocity.x),    (angular_velocity.y),    (angular_velocity.z),
+                (linear_acceleration.x), (linear_acceleration.y), (linear_acceleration.z)
             ]
         )
 
         Reward -= \
-            abs(pose.position.x - self.target_pose.x) + \
-            abs(pose.position.y - self.target_pose.y) + \
-            abs(pose.position.z - self.target_pose.z)
+            min( abs(pose.position.x - self.target_pose.x), 20 ) + \
+            min( abs(pose.position.y - self.target_pose.y), 20 ) + \
+            min( abs(pose.position.z - self.target_pose.z), 20 )
+        Reward *= 0.1
+
+        if pose.position.z < 1:
+            Reward -= 10
+            Reward += timestamp
+            Done = True
 
         if timestamp >= 5:
+            Reward += 20
             Done = True
 
         action = self.agent.step(State, Reward, Done)
