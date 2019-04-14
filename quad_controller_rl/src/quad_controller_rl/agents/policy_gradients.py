@@ -16,21 +16,24 @@ class DDPG(BaseAgent):
         self.task = task
 
         self.state_dim = self.task.observation_space.shape[0]
-        self.action_dim = self.task.action_space.shape[0]
+        if False:
+            self.action_dim = self.task.action_space.shape[0]
+        else:
+            self.action_dim = 3
         self.reward_dim = 1
         self.done_dim = 1
 
         self.experience = Experience(self.action_dim, self.state_dim, 1000000)
         self.train = Train(self.action_dim, self.state_dim, self.reward_dim, self.done_dim)
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.5), desired_action_stddev=float(0.15), adoption_coefficient=float(1.000001))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.3), desired_action_stddev=float(0.4), adoption_coefficient=float(1.0001))
 
         self.reset()
         print("DDPG init")
         self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
         self.status_columns = ['episode', 'total_reward']
         self.reward_num = 1
-        self.total_reward = -1000
+        self.total_reward = 0
         self.max_total_reward = -1000
         print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
@@ -39,24 +42,20 @@ class DDPG(BaseAgent):
         print("Saving action")
 
     def preprocess(self, dateIn):
-        self.state_ran = self.task.observation_space.high - self.task.observation_space.low
-        self.state_hlf = np.divide(self.state_ran, 2)
-        self.state_mid = self.state_hlf + self.task.observation_space.low
-        self.action_ran = self.task.action_space.high - self.task.action_space.low
-        self.action_hlf = np.divide(self.action_ran, 2)
-        self.action_mid = self.action_hlf + self.task.action_space.low
-
         dateOut = dateIn.reshape(1, -1)
-
-        return (dateOut - self.state_mid) / self.state_hlf
+        return dateOut
 
     def posprocess(self, dateIn):
+        action_range = np.divide(self.task.action_space.high - self.task.action_space.low, 2)
+        action_mid = action_range + self.task.action_space.low
+
         dateOut = np.array([0, 0, 0, 0, 0, 0])
-        if self.action is not None:
-            if True:
-                dateOut      = (dateIn * self.action_hlf + self.action_mid)[0]
+        if dateIn is not None:
+            if False:
+                dateOut      = dateIn[0] * action_range + action_mid
             else:
-                dateOut[0:3] = (dateIn * self.action_hlf + self.action_mid)[0][0:3]
+                dateOut[0:3] = dateIn[0] * action_range[0:3] + action_mid[0:3]
+
         return dateOut
 
     def reset(self):
@@ -78,9 +77,10 @@ class DDPG(BaseAgent):
     def write_action(self):
         if self.action is None:
             return
-        temp = np.asarray([self.action_num, self.adaptive_noise.current_stddev,0,0,0,0,0,0])
-        temp[2:] = self.action[0]
-        df_status = pd.DataFrame([temp], columns=['episode','noise','l1','l2','l3','l4','l5','l6'])
+        temp = np.asarray([self.action_num, self.adaptive_noise.current_stddev, 0, 0, 0, 0, 0, 0])
+        temp[2:] = self.posprocess( self.action )
+
+        df_status = pd.DataFrame([temp], columns=['episode', 'noise',' l1', 'l2', 'l3', 'l4', 'l5', 'l6'])
         df_status.to_csv(self.action_filename, mode='a', index=False, header=not os.path.isfile(self.action_filename))
         self.action_num += 1
 
@@ -91,17 +91,14 @@ class DDPG(BaseAgent):
 
         if self.state is not None and self.action is not None:
             self.total_reward += self.reward
-            if self.done is True:
-                self.experience.push(self.state, self.action, self.total_reward, self.next_state, self.done)
-            else:
-                self.experience.push(self.state, self.action, self.reward,       self.next_state, self.done)
+            self.experience.push(self.state, self.action, self.reward,  self.next_state, self.done)
 
-        self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
         self.state = self.next_state
+        self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
         self.action = self.train.operation_param_noise_action(self.state)
         #self.action = self.action + self.noise.sample()
 
-        if 10000 < len(self.experience) and 0 == (len(self.experience) % 1):
+        if 1000 < len(self.experience) and 0 == (len(self.experience) % 1):
             for times in range(1):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(self.train.batch_size)
 
@@ -127,13 +124,11 @@ class DDPG(BaseAgent):
         if done:
             print("done {} max reward {} reward {}".format(len(self.experience), self.max_total_reward, self.total_reward))
             self.write_reward()
-
             if self.max_total_reward < self.total_reward:
                 self.max_total_reward = self.total_reward
-                self.train.saver.save(sess=self.train.sess, save_path="./hover/policy", global_step=0, write_meta_graph=True)
+                self.train.saver.save(sess=self.train.sess, save_path="./off/policy", global_step=0, write_meta_graph=True)
             self.reset()
         self.write_action()
-
         return self.posprocess( self.action )
 
 class AdaptiveParamNoise:
@@ -244,6 +239,13 @@ class Train:
                 print(variable)
 
         self.saver = tf.train.Saver( max_to_keep=100 )
+
+        try:
+            self.saver.restore(self.sess, tf.train.latest_checkpoint('./off/'))
+        except:
+            print("Nathing Variable Value Can Load")
+        finally:
+            print("Load Variable Value OK")
 
 
     def perturb_actor_updates(self, actor, actor_param_noise):
@@ -454,10 +456,10 @@ class Actor(Model):
        if layer_norm:
            l1 = tf.contrib.layers.layer_norm(l1,
                                              center=True,
-                                             scale=False,
-                                             trainable=True
+                                             scale=True,
+                                             trainable=OptimizerEn
             )
-       l1 = tf.nn.elu(l1)
+       l1 = tf.nn.tanh(l1)
 
        l2 = tf.layers.dense(
             inputs=l1,
@@ -472,15 +474,15 @@ class Actor(Model):
        if layer_norm:
            l2 = tf.contrib.layers.layer_norm(l2,
                                              center=True,
-                                             scale=False,
-                                             trainable=True
+                                             scale=True,
+                                             trainable=OptimizerEn
             )
-       l2 = tf.nn.elu(l2)
+       l2 = tf.nn.tanh(l2)
 
        l3 = tf.layers.dense(
             inputs=l2,
             units=self.action_dim,
-            kernel_initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3),
+            kernel_initializer=tf.random_uniform_initializer(minval=-(3e-3), maxval=(3e-3)),
             trainable=OptimizerEn,
             name='l3',
             )
@@ -555,21 +557,21 @@ class Critic(Model):
 
         l1_s_w = tf.get_variable(
                 name='11_s_w',
-                shape=[self.state_dim, 50],
+                shape=[self.state_dim, 60],
                 dtype=tf.float32,
                 initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn
                 )
         l1_a_w = tf.get_variable(
                 name='l1_a_w',
-                shape=[self.action_dim, 50],
+                shape=[self.action_dim, 60],
                 dtype=tf.float32,
                 initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn
                 )
         l1_b = tf.get_variable(
                 name='l1_b',
-                shape=[50],
+                shape=[60],
                 dtype=tf.float32,
                 initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
@@ -579,7 +581,7 @@ class Critic(Model):
 
         l2_w = tf.get_variable(
                 name='l2_w',
-                shape=[50, 40],
+                shape=[60, 40],
                 dtype=tf.float32,
                 initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn                
@@ -596,25 +598,30 @@ class Critic(Model):
 
         l3_w = tf.get_variable(
                 name='l3_w',
-                shape=[40, 1],
+                shape=[40, 20],
                 dtype=tf.float32,
-                initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3),
+                initializer=ortho_init( np.sqrt(2) ),
                 trainable=OptimizerEn
                 ) 
         l3_b = tf.get_variable(
                 name='l3_b',
-                shape=[1],
+                shape=[20],
                 dtype=tf.float32,
                 initializer=tf.constant_initializer(0.0),
                 trainable=OptimizerEn
                 )
-        l3 = tf.add(
-            tf.matmul(l2, l3_w),
-            l3_b,
-            name='critic_net_out'
+        l3 = tf.matmul(l2, l3_w) + l3_b
+        l3 = tf.nn.elu(l3)
+
+        l4 = tf.layers.dense(
+            inputs=l3,
+            units=1,
+            kernel_initializer=tf.random_uniform_initializer(minval=-(3e-3), maxval=(3e-3)),
+            trainable=OptimizerEn,
+            name='critic_net_out',
         )
 
-        return l3
+        return l4
 
     def BuildTargetGraph(self, NetOut, GAMMA=0.5):
         self.target = tf.add(
