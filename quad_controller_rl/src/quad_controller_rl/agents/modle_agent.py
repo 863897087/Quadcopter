@@ -4,18 +4,35 @@ import numpy as np
 
 class MODLE(BaseAgent):
     def __init__(self, task):
-        self.sess = tf.Session()
         self.task = task
         print("MODLE Init")
 
-        self.modle = tf.train.import_meta_graph(
-            meta_graph_or_file=('./off/policy-0.meta')
-        )
-        self.modle.restore(self.sess, tf.train.latest_checkpoint('./off/'))
-        print("MODLE Load")
+    def Takeoff(self):
+        self.offgraph = tf.Graph()
+        self.sess = tf.Session(graph=self.offgraph)
+        with self.offgraph.as_default():
+            self.offmodle = tf.train.import_meta_graph( meta_graph_or_file=('./lastoff/policy-0.meta') )
+            print("Takeoff Model Load")
+            self.offmodle.restore(self.sess, tf.train.latest_checkpoint('./lastoff/'))
+            print("Takeoff Varible Load")
 
-        self.graph = tf.get_default_graph()
-        print("GRAPH Load")
+    def HOVER(self):
+        self.hovergraph = tf.Graph()
+        self.sess = tf.Session(graph=self.hovergraph)
+        with self.hovergraph.as_default():
+            self.hovermodle = tf.train.import_meta_graph( meta_graph_or_file=('./lasthover/policy-0.meta') )
+            print("HOVER Modle Load")
+            self.hovermodle.restore(self.sess, tf.train.latest_checkpoint('./lasthover/'))
+            print("HOVER Varible Load")
+
+    def LANDING(self):
+        self.landinggraph = tf.Graph()
+        self.sess = tf.Session(graph=self.landinggraph)
+        with self.landinggraph.as_default():
+            self.landingmodle = tf.train.import_meta_graph( meta_graph_or_file=('./lastlanding/policy-0.meta') )
+            print("LANDING Modle Load")
+            self.landingmodle.restore(self.sess, tf.train.latest_checkpoint('./lastlanding/'))
+            print("LANDING Varible Load")
 
     def step(self, state, reward, done):
 
