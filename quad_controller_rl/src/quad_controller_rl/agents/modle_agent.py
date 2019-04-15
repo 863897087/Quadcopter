@@ -18,23 +18,29 @@ class MODLE(BaseAgent):
         print("GRAPH Load")
 
     def step(self, state, reward, done):
-        state = self.preprocess(state)
-        state = state.reshape(1, -1)
 
         action = self.sess.run(
-            'base_actor/action_net_out:0', feed_dict={'action_state_in:0':state}
+            'base_actor/action_net_out:0',
+            feed_dict={
+                'action_state_in:0':self.preprocess(state)
+            }
         )
 
-        return self.posprocess(action)
+        return self.posprocess( action )
 
-    def preprocess(self, date):
-        return date
+    def preprocess(self, dateIn):
+        dateOut = dateIn.reshape(1, -1)
+        return dateOut
 
-    def posprocess(self, date):
-        if False:
-            tempdate = np.array([0, 0, 0, 0, 0, 0])
-            if date is not None:
-                tempdate[0:3] = date[0][0:3]
-            return tempdate
-        else:
-            return date
+    def posprocess(self, dateIn):
+        action_range = np.divide(self.task.action_space.high - self.task.action_space.low, 2)
+        action_mid = action_range + self.task.action_space.low
+
+        dateOut = np.array([0, 0, 0, 0, 0, 0])
+        if dateIn is not None:
+            if False:
+                dateOut      = dateIn[0] * action_range + action_mid
+            else:
+                dateOut[0:3] = dateIn[0] * action_range[0:3] + action_mid[0:3]
+
+        return dateOut
