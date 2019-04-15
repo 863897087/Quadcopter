@@ -126,7 +126,7 @@ class DDPG(BaseAgent):
             self.write_reward()
             if self.max_total_reward < self.total_reward:
                 self.max_total_reward = self.total_reward
-                self.train.saver.save(sess=self.train.sess, save_path="./off/policy", global_step=0, write_meta_graph=True)
+                self.train.saver.save(sess=self.train.sess, save_path="./modle/policy", global_step=0, write_meta_graph=True)
             self.reset()
         self.write_action()
         return self.posprocess( self.action )
@@ -241,7 +241,7 @@ class Train:
         self.saver = tf.train.Saver( max_to_keep=100 )
 
         try:
-            self.saver.restore(self.sess, tf.train.latest_checkpoint('./off/'))
+            self.saver.restore(self.sess, tf.train.latest_checkpoint('./modle/'))
         except:
             print("Nathing Variable Value Can Load")
         finally:

@@ -27,6 +27,8 @@ class LANDING(BaseTask):
         self.down_time = 10
 
     def reset(self):
+        #self.agent.LANDING()
+
         self.target_pose = Point(0.0, 0.0, np.random.normal(10, 0.5))
         return Pose(
             position=self.target_pose,
@@ -39,15 +41,16 @@ class LANDING(BaseTask):
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
         Reward = 0.0
         Done = False
+
+        self.target_pose.z = (self.target_pose.z / self.down_time) * (self.down_time - timestamp)
+
         State = np.array(
             [
                 (pose.position.x), (pose.position.y), (pose.position.z),
-                (pose.orientation.x), (pose.orientation.y), (pose.orientation.z), (pose.orientation.w)
-                (self.target_pose.x,), (self.target_pose.y), (self.target_pose.z), timestamp
+                (pose.orientation.x), (pose.orientation.y), (pose.orientation.z), (pose.orientation.w),
+                (self.target_pose.x), (self.target_pose.y), (self.target_pose.z), timestamp
             ]
         )
-
-        self.target_pose.z = (self.target_pose.z / self.down_time) * (self.down_time - timestamp)
 
         Reward -= \
             min(abs(pose.position.x - self.target_pose.x), 20) + \
@@ -55,7 +58,7 @@ class LANDING(BaseTask):
             min(abs(pose.position.z - self.target_pose.z), 20)
         Reward *= 0.1
 
-        if pose.position.z == 0:
+        if pose.position.z <= 0.1:
             Done = True
             if self.down_time - timestamp <= 0:
                 Reward += 20
