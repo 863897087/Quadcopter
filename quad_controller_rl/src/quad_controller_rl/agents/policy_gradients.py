@@ -26,20 +26,28 @@ class DDPG(BaseAgent):
         self.experience = Experience(self.action_dim, self.state_dim, 1000000)
         self.train = Train(self.action_dim, self.state_dim, self.reward_dim, self.done_dim)
         self.noise = Noise(self.action_dim)
-        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.3), desired_action_stddev=float(0.4), adoption_coefficient=float(1.0001))
+        self.adaptive_noise = AdaptiveParamNoise(initial_stddev=float(0.4), desired_action_stddev=float(0.4), adoption_coefficient=float(1.01))
 
         self.reset()
         print("DDPG init")
-        self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
-        self.status_columns = ['episode', 'total_reward']
+
         self.reward_num = 1
+        self.reward_columns = ['episode', 'total_reward']
+        self.reward_filename = os.path.join(util.get_param('out'), "reward_{}.csv".format(util.get_timestamp()))
+
         self.total_reward = 0
         self.max_total_reward = -1000
-        print("Saving status {} to {}".format(self.status_columns, self.status_filename))
+        print("Saving reward {} to {}".format(self.reward_columns, self.reward_filename))
 
         self.action_num = 1
+        self.action_columns = ['episode', 'noise','l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l1c', 'l2c', 'l3c', 'l4c', 'l5c', 'l6c']
         self.action_filename = os.path.join(util.get_param('out'), "action_{}.csv".format(util.get_timestamp()))
-        print("Saving action")
+        print("Saving action {} to {}".format(self.action_columns, self.action_filename))
+
+        self.status_num = 1
+        self.status_columns = ['episode', 'current', 'target']
+        self.status_filename = os.path.join(util.get_param('out'), "status_{}.csv".format(util.get_timestamp()))
+        print("Saving status {} to {}".format(self.status_columns, self.status_filename))
 
     def preprocess(self, dateIn):
         dateOut = dateIn.reshape(1, -1)
@@ -58,6 +66,15 @@ class DDPG(BaseAgent):
 
         return dateOut
 
+    def LANDING(self):
+        pass
+
+    def HOVER(self):
+        pass
+
+    def Takeoff(self):
+        pass
+
     def reset(self):
         self.next_state = None
         self.state = None
@@ -70,19 +87,32 @@ class DDPG(BaseAgent):
 
     def write_reward(self):
         status = [self.reward_num, self.total_reward]
-        df_status = pd.DataFrame([status], columns=self.status_columns)
-        df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
+
+        df_status = pd.DataFrame([status], columns=self.reward_columns)
+        df_status.to_csv(self.reward_filename, mode='a', index=False, header=not os.path.isfile(self.reward_filename))
         self.reward_num += 1
 
     def write_action(self):
         if self.action is None:
             return
-        temp = np.asarray([self.action_num, self.adaptive_noise.current_stddev, 0, 0, 0, 0, 0, 0])
-        temp[2:] = self.posprocess( self.action )
 
-        df_status = pd.DataFrame([temp], columns=['episode', 'noise',' l1', 'l2', 'l3', 'l4', 'l5', 'l6'])
+        temp = np.asarray([self.action_num, self.adaptive_noise.current_stddev, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        temp[2:8] = self.posprocess( self.action )
+        temp[8:]= self.posprocess( self.base_action )
+
+        df_status = pd.DataFrame([temp], columns=self.action_columns)
         df_status.to_csv(self.action_filename, mode='a', index=False, header=not os.path.isfile(self.action_filename))
         self.action_num += 1
+
+    def write_state(self):
+        if self.state is None:
+            return
+
+        temp = np.asarray([self.status_columns, self.state[0][2], self.state[0][9]])
+
+        df_status = pd.DataFrame([temp], columns=self.status_columns)
+        df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
+        self.status_num += 1
 
     def step(self, state, reward, done):
         self.reward = reward
@@ -95,31 +125,29 @@ class DDPG(BaseAgent):
 
         self.state = self.next_state
         self.train.operation_param_noise_reset(self.adaptive_noise.current_stddev)
+        self.base_action = self.train.operation_action(self.state)
         self.action = self.train.operation_param_noise_action(self.state)
         #self.action = self.action + self.noise.sample()
 
         if 1000 < len(self.experience) and 0 == (len(self.experience) % 1):
             for times in range(1):
                 exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(self.train.batch_size)
-
-                cost_critic_summary, QB_summary = self.train.operation_train_critic(
-                    exp_state, exp_action, exp_reward, exp_next_state, exp_done
-                )
-                gradient_summary, cost_actor_summary = self.train.operation_train_actor(exp_state)
-
-                self.train.operation_update_net()
-
                 self.adaptive_noise.adapt(
                     self.train.operation_param_noise_adaptive(exp_state, self.adaptive_noise.current_stddev)
                 )
 
+                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(self.train.batch_size)
+                gradient_summary, cost_actor_summary = self.train.operation_train_actor(exp_state)
+
+                exp_state, exp_action, exp_reward, exp_next_state, exp_done = self.experience.pop(self.train.batch_size)
+                cost_critic_summary, QB_summary = self.train.operation_train_critic(
+                    exp_state, exp_action, exp_reward, exp_next_state, exp_done
+                )
+
+                self.train.operation_update_net()
+
                 if times % 5 == 0:
-                    self.train.operation_write_summary(
-                        cost_critic_summary,
-                        QB_summary,
-                        gradient_summary,
-                        cost_actor_summary,
-                    )
+                    self.train.operation_write_summary(cost_critic_summary,QB_summary,gradient_summary,cost_actor_summary)
 
         if done:
             print("done {} max reward {} reward {}".format(len(self.experience), self.max_total_reward, self.total_reward))
@@ -129,6 +157,7 @@ class DDPG(BaseAgent):
                 self.train.saver.save(sess=self.train.sess, save_path="./modle/policy", global_step=0, write_meta_graph=True)
             self.reset()
         self.write_action()
+        self.write_state()
         return self.posprocess( self.action )
 
 class AdaptiveParamNoise:
@@ -229,17 +258,16 @@ class Train:
         self.graph_interface()
 
     def graph_interface(self):
-        print("ALL COLLECTION KEYS LIST: ")
-        self.keys_names = tf.get_default_graph().get_all_collection_keys()
-        print(self.keys_names)
+        #print("ALL COLLECTION KEYS LIST: ")
+        #self.keys_names = tf.get_default_graph().get_all_collection_keys()
+        #print(self.keys_names)
 
-        for name in self.keys_names:
-            print("KEY", name)
-            for variable in tf.get_default_graph().get_collection(name):
-                print(variable)
+        #for name in self.keys_names:
+        #    print("KEY", name)
+        #    for variable in tf.get_default_graph().get_collection(name):
+        #        print(variable)
 
         self.saver = tf.train.Saver( max_to_keep=100 )
-
         try:
             self.saver.restore(self.sess, tf.train.latest_checkpoint('./modle/'))
         except:
@@ -252,7 +280,7 @@ class Train:
         updates = []
         for var, perturb_var in zip(actor.vars, actor_param_noise.vars):
             if var in actor.perturb_vars:
-                print(perturb_var.name, var.name)
+                #print(perturb_var.name, var.name)
                 updates.append(tf.assign(
                         perturb_var,
                         var + tf.random_normal(tf.shape(var), mean=0., stddev=self.param_noise_stddev)
@@ -309,7 +337,7 @@ class Train:
         self.actor_copy.name = "copy_actor"
         self.actor_copy_ty = self.actor_copy(OptimizerEn=False, layer_norm=True, reuse=False)
         self.actor_copy_policy = tf.group(* self.copy_updates(self.actor, self.actor_copy), name='actor_copy_policy' )
-        self.actor_upgrade_policy = tf.group(* self.upgrade_updates(self.actor, self.actor_copy, 0.0001), name='actor_upgrade_policy' )
+        self.actor_upgrade_policy = tf.group(* self.upgrade_updates(self.actor, self.actor_copy, 0.000001), name='actor_upgrade_policy' )
 
     def setup_critic_base(self):
         self.critic.name = "base_critic"
@@ -352,6 +380,8 @@ class Train:
         mean_distance = distance
 
         return mean_distance
+    def operation_action(self, state):
+        return self.sess.run(self.actor_base_tf, feed_dict={self.actor.state_in:state})
 
     def operation_param_noise_action(self, state):
         return self.sess.run(self.actor_param_noise_tf, feed_dict={self.actor_param_noise.state_in:state})
