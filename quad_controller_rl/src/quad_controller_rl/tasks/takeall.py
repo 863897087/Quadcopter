@@ -26,19 +26,19 @@ class ALL(BaseTask):
 
         if self.Takeoff_En is True:
             print("reset takeoff start")
-            self.agent.Takeoff()
+            #self.agent.Takeoff()
             self.Takeoff_Number.set_agent(self.agent)
             return self.Takeoff_Number.reset()
 
         if self.HOVER_En is True:
             print("reset hover start")
-            self.agent.HOVER()
+            #self.agent.HOVER()
             self.HOVER_Number.set_agent(self.agent)
             return self.HOVER_Number.reset()
 
         if self.LANDING_En is True:
             print("reset landing start")
-            self.agent.LANDING()
+            #self.agent.LANDING()
             self.LANDING_Number.set_agent(self.agent)
             return self.LANDING_Number.reset()
 
@@ -51,7 +51,7 @@ class ALL(BaseTask):
                 self.Takeoff_En = False
                 self.LANDING_En = False
 
-            print("update start HOVER {}".format(self.HOVER_En))
+            #print("update start HOVER {}".format(self.HOVER_En))
             return Wrench_number, self.HOVER_En
 
         if self.HOVER_En is True:
@@ -61,7 +61,7 @@ class ALL(BaseTask):
                 self.Takeoff_En = False
                 self.HOVER_En = False
 
-            print("update start LANDING {}".format(self.LANDING_En))
+            #print("update start LANDING {}".format(self.LANDING_En))
             return Wrench_number, self.LANDING_En
 
         if self.LANDING_En is True:
@@ -71,7 +71,7 @@ class ALL(BaseTask):
                 self.HOVER_En = False
                 self.LANDING_En = False
 
-            print("update start TAKEOFF {}".format(self.Takeoff_En))
+            #print("update start TAKEOFF {}".format(self.Takeoff_En))
             return Wrench_number, self.Takeoff_En
 
 

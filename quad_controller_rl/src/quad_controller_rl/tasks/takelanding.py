@@ -62,7 +62,7 @@ class LANDING(BaseTask):
         self.save_pose = Point( pose.position.x, pose.position.y, pose.position.z * (1-timestamp/10) )
 
         if pose.position.z <= 0.2:
-            Reward += timestamp
+            Reward += timestamp*3
             Done = True
 
         if timestamp >= 11 or abs(pose.position.x) > 50 or abs(pose.position.y) > 50 or abs(pose.position.z) > 50:
