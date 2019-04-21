@@ -26,3 +26,13 @@ class BaseAgent:
         - action: desired action vector as NumPy array, compatible with task's action space
         """
         raise NotImplementedError("{} must override step()".format(self.__class__.__name__))
+
+
+    def LANDING(self):
+        pass
+
+    def HOVER(self):
+        pass
+
+    def Takeoff(self):
+        pass

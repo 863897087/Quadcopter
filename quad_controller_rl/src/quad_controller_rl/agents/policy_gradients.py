@@ -66,15 +66,6 @@ class DDPG(BaseAgent):
 
         return dateOut
 
-    def LANDING(self):
-        pass
-
-    def HOVER(self):
-        pass
-
-    def Takeoff(self):
-        pass
-
     def reset(self):
         self.next_state = None
         self.state = None
@@ -108,11 +99,11 @@ class DDPG(BaseAgent):
         if self.state is None:
             return
 
-        temp = np.asarray([self.status_columns, self.state[0][2], self.state[0][9]])
+        #temp = np.asarray([self.status_columns, self.state[0][2], self.state[0][9]])
 
-        df_status = pd.DataFrame([temp], columns=self.status_columns)
-        df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
-        self.status_num += 1
+        #df_status = pd.DataFrame([temp], columns=self.status_columns)
+        #df_status.to_csv(self.status_filename, mode='a', index=False, header=not os.path.isfile(self.status_filename))
+        #self.status_num += 1
 
     def step(self, state, reward, done):
         self.reward = reward
