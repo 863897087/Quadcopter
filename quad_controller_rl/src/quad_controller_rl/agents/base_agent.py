@@ -29,10 +29,19 @@ class BaseAgent:
 
 
     def LANDING(self):
-        pass
+        print("BaseAgent LANDING")
 
     def HOVER(self):
-        pass
+        print("BaseAgent HOVER")
 
     def Takeoff(self):
-        pass
+        print("BaseAgent Takeoff")
+
+    def SetTakeoff(self):
+        print("BaseAgent SetTakeoff")
+
+    def SetTakehover(self):
+        print("BaseAgent SetTakehover")
+
+    def SetTakelanding(self):
+        print("BaseAgent SetTakelanding")
