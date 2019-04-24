@@ -31,7 +31,7 @@ class LANDING(BaseTask):
 
     def reset(self):
         self.agent.LANDING()
-
+        self.agent.SetTakelanding()
         return Pose(
             position=Point(0.0,0.0,10.0),
             orientation=Quaternion(0.0, 0.0, 0.0, 0.0)

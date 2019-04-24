@@ -27,6 +27,7 @@ class HOVER(BaseTask):
 
     def reset(self):
         self.agent.HOVER()
+        self.agent.SetTakehover()
         return Pose(position=Point(0.0, 0.0, np.random.normal(10, 0.5)), orientation=Quaternion(0.0, 0.0, 0.0, 0.0)), \
                Twist(linear=Vector3(0.0, 0.0, 0.0), angular=Vector3(0.0, 0.0, 0.0))
 
