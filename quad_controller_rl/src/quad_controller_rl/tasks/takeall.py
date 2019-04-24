@@ -8,6 +8,9 @@ import numpy as np
 
 class ALL(BaseTask):
     def __init__(self):
+        self.Shift_Pose = Point(0.0, 0.0, 0.0)
+        self.Current_Pose = Point(0.0, 0.0, 0.0)
+
         self.Takeoff_En = True
         self.Takeoff_Number = Takeoff()
 
@@ -25,24 +28,60 @@ class ALL(BaseTask):
     def reset(self):
 
         if self.Takeoff_En is True:
-            print("reset takeoff start")
-            #self.agent.Takeoff()
+            self.Current_Pos = Point(0.0, 0.0, 0.0)
+            self.Shift_Pose = Point(0.0, 0.0, 0.0)
             self.Takeoff_Number.set_agent(self.agent)
-            return self.Takeoff_Number.reset()
+            self.agent.Takeoff()
+            self.HOVER_Number.set_agent(self.agent)
+            self.agent.HOVER()
+            self.LANDING_Number.set_agent(self.agent)
+            self.agent.LANDING()
+
+            print("reset takeoff start")
+            self.agent.SetTakeoff()
+            return Pose(
+                position=self.Current_Pos, orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
+            ), Twist(
+                linear=Vector3(0.0, 0.0, 0.0), angular=Vector3(0.0, 0.0, 0.0)
+            )
 
         if self.HOVER_En is True:
+            self.Shift_Pose = Point(
+                self.Current_Pos.x - 0,
+                self.Current_Pos.y - 0,
+                self.Current_Pos.z - 10
+            )
+
             print("reset hover start")
-            #self.agent.HOVER()
-            self.HOVER_Number.set_agent(self.agent)
-            return self.HOVER_Number.reset()
+            self.agent.SetTakehover()
+            return Pose(
+                position=self.Current_Pos, orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
+            ), Twist(
+                linear=Vector3(0.0, 0.0, 0.0), angular=Vector3(0.0, 0.0, 0.0)
+            )
 
         if self.LANDING_En is True:
+            self.Shift_Pose = Point(
+                self.Current_Pos.x - 0,
+                self.Current_Pos.y - 0,
+                self.Current_Pos.z - 10
+            )
+
             print("reset landing start")
-            #self.agent.LANDING()
-            self.LANDING_Number.set_agent(self.agent)
-            return self.LANDING_Number.reset()
+            self.agent.SetTakelanding()
+            return Pose(
+                position=self.Current_Pos, orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
+            ), Twist(
+                linear=Vector3(0.0, 0.0, 0.0), angular=Vector3(0.0, 0.0, 0.0)
+            )
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
+        self.Current_Pos = pose.position
+        pose.position = Point(
+            pose.position.x - self.Shift_Pose.x,
+            pose.position.y - self.Shift_Pose.y,
+            pose.position.z - self.Shift_Pose.z
+        )
 
         if self.Takeoff_En is True:
 
