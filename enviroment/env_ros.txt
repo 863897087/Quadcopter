@@ -1,0 +1,12 @@
+qrunas /user:Administrator
+VsDevCmd.bat -arch=amd64 -host_arch=amd64
+c:\opt\ros\melodic\x64\setup.bat
+/home/robond/catkin_ws/src/RL-Quadcopter/quad_controller_rl/sim
+
+catkin_ws /
+	catkin_make
+	source devel/setup.bash
+	export | grep ROS
+catkin_ws /src /RL-Quadcopter /quad_controller_rl /launch /
+	roslaunch quad_controller_rl rl_controller.launch
+	roslaunch quad_controller_rl rl_controller.launch task:=Hover agent:=DDPG sim:=<full path>

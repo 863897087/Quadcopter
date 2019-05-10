@@ -1,0 +1,23 @@
+set %path%=
+%path%;
+%programfiles(x86)%\Microsoft Visual Studio\2017\Community\Common7\IDE\;
+%programfiles(x86)%\Microsoft Visual Studio\2017\Community\Common7\Tools\;
+%programfiles(x86)%\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.16.27023\bin\Hostx64\x64\;
+%programfiles(x86)%\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\;
+
+runas /user:Administator vcvars64.bat
+
+cd boost_1_66_0
+bootstrap.bat
+code project-config.jam
+	using msvc : 14.16 :  c1.exe;
+
+mkdir build output
+b2.exe
+	stage			--stagedir=".\output"
+	install			--prefix=".\output"
+	--build-type=complete 	--build-dir=".\build"
+	link=shared		runtime-link=shared
+	--toolset=msvc-14.16	address-model=64
+	architecture=x64
+	threading=multi

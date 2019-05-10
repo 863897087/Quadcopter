@@ -1,0 +1,9 @@
+help
+get-help
+
+set-executionpolicy	bypass -scope process -force
+
+$'Name'=new-object Sytem.Net.WebClient
+$'Name'.downloadstring('https://chocolatey.org/install.ps1')
+
+invoke-expression()

@@ -1,0 +1,6 @@
+choco	/?
+choco	
+	source add 
+	-n="ros-win" -s="https://roswin.azurewebsites.net/api/v2" --priority=1
+choco
+	upgrade ros-melodic-desktop -y --force

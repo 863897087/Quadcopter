@@ -1,0 +1,5 @@
+regsvr32	
+	msi.dll
+
+system32		x64
+syswow64	x86

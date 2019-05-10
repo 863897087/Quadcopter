@@ -1,0 +1,12 @@
+powershell 
+	-noprofile 
+	-inputformat none
+	-executionpolicy bypass
+ 	-command(" ")
+
+
+
+
+
+
+
